@@ -7,7 +7,6 @@
 #pragma once
 #include <atomic>
 #include <type_traits>
-#include "internal/allocator.hpp"
 
 namespace psx {
 	//TODO: documentation
@@ -26,8 +25,11 @@ namespace psx {
 			Type value;
 		};
 
+		using node_allocator = typename std::allocator_traits<Allocator>::template rebind_alloc<node>;
+		using node_allocator_traits = std::allocator_traits<node_allocator>;
+
 		std::atomic<node *> head{nullptr};
-		[[no_unique_address]] typename std::allocator_traits<Allocator>::template rebind_alloc<node> alloc;
+		[[no_unique_address]] node_allocator alloc;
 
 		template<bool IsConst>
 		class iterator_t final {
@@ -60,11 +62,11 @@ namespace psx {
 				return tmp;
 			}
 
-			auto operator*() const noexcept -> Reference {
+			auto operator*() const noexcept -> reference {
 				assert(ptr);
 				return *ptr;
 			}
-			auto operator->() const noexcept -> Pointer { return &**this; }
+			auto operator->() const noexcept -> pointer { return &**this; }
 
 			friend
 			auto operator==(const iterator_t & lhs, const iterator_t & rhs) noexcept { return lhs.ptr == rhs.ptr; }
@@ -80,11 +82,11 @@ namespace psx {
 		using const_reference = const Type &;
 		using pointer         = Type *;
 		using const_pointer   = const Type *;
-		using iterator        = iterator_t<reference, pointer>;
-		using const_iterator  = iterator_t<const_reference, const_pointer>;
+		using iterator        = iterator_t<false>;
+		using const_iterator  = iterator_t<true>;
 
 		atomic_forward_list() noexcept =default;
-		atomic_forward_list(const atomic_foward_list &) =delete;
+		atomic_forward_list(const atomic_forward_list &) =delete;
 		atomic_forward_list(atomic_forward_list && other) noexcept { unsafe_swap(other); }
 		auto operator=(const atomic_forward_list &) -> atomic_forward_list & =delete;
 		auto operator=(atomic_forward_list && other) noexcept -> atomic_forward_list & { unsafe_swap(other); return *this; }
@@ -94,7 +96,13 @@ namespace psx {
 		auto push_front(Type && value) -> Type & { return emplace_front(std::move(value)); }
 		template<typename... Args>
 		auto emplace_front(Args &&... args) -> Type & {
-			auto ptr{internal::allocate_node(alloc, std::forward<Args>(args)...)};
+			auto ptr{node_allocator_traits::allocate(alloc, 1)};
+			try {
+				node_allocator_traits::construct(alloc, ptr, std::forward<Args>(args)...);
+			} catch(...) {
+				node_allocator_traits::deallocate(alloc, ptr, 1);
+				throw;
+			}
 			ptr->next = head.load();
 			while(!head.compare_exchange_weak(ptr->next, ptr));
 			return ptr->value;
@@ -104,7 +112,8 @@ namespace psx {
 			for(auto ptr{head.load()}; ptr;) {
 				const auto tmp{ptr};
 				ptr = ptr->next;
-				internal::deallocate_node(alloc, tmp);
+				node_allocator_traits::destroy(alloc, tmp);
+				node_allocator_traits::deallocate(alloc, tmp, 1);
 			}
 			head = nullptr;
 		}

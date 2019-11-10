@@ -27,7 +27,7 @@ namespace psx {
 
 			iterator_t(iterator it) noexcept : it{it} {}
 		public:
-			using iterator_t_category = std::forward_iterator_t_tag;
+			using iterator_t_category = std::forward_iterator_tag;
 			using value_type        = Type;
 			using difference_type   = std::ptrdiff_t;
 			using pointer           = std::conditional_t<IsConst, const Type, Type> *;
