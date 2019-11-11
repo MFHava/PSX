@@ -16,8 +16,6 @@ namespace psx {
 		static_assert(std::is_nothrow_destructible_v<Type>);
 
 		struct node final {
-			node(const Type & value) : value{value} {}
-			node(Type && value) noexcept(std::is_nothrow_move_constructible_v<Type>) : value{std::move(value)} {}
 			template<typename... Args, typename = std::enable_if_t<std::is_constructible_v<Type, Args...>>>
 			node(Args &&... args) noexcept(std::is_nothrow_constructible_v<Type, Args...>) : value{std::forward<Args>(args)...} {}
 
@@ -25,11 +23,10 @@ namespace psx {
 			Type value;
 		};
 
-		using node_allocator = typename std::allocator_traits<Allocator>::template rebind_alloc<node>;
-		using node_allocator_traits = std::allocator_traits<node_allocator>;
+		using alloc_traits = typename std::allocator_traits<Allocator>::template rebind_traits<node>;
 
 		std::atomic<node *> head{nullptr};
-		[[no_unique_address]] node_allocator alloc;
+		[[no_unique_address]] typename alloc_traits::allocator_type alloc;
 
 		template<bool IsConst>
 		class iterator_t final {
@@ -87,20 +84,20 @@ namespace psx {
 
 		atomic_forward_list() noexcept =default;
 		atomic_forward_list(const atomic_forward_list &) =delete;
-		atomic_forward_list(atomic_forward_list && other) noexcept { unsafe_swap(other); }
+		atomic_forward_list(atomic_forward_list && other) noexcept { swap(other); }
 		auto operator=(const atomic_forward_list &) -> atomic_forward_list & =delete;
-		auto operator=(atomic_forward_list && other) noexcept -> atomic_forward_list & { unsafe_swap(other); return *this; }
+		auto operator=(atomic_forward_list && other) noexcept -> atomic_forward_list & { swap(other); return *this; }
 		~atomic_forward_list() noexcept { clear(); }
 
 		auto push_front(const Type & value) -> Type & { return emplace_front(value); }
 		auto push_front(Type && value) -> Type & { return emplace_front(std::move(value)); }
 		template<typename... Args>
 		auto emplace_front(Args &&... args) -> Type & {
-			auto ptr{node_allocator_traits::allocate(alloc, 1)};
+			auto ptr{alloc_traits::allocate(alloc, 1)};
 			try {
-				node_allocator_traits::construct(alloc, ptr, std::forward<Args>(args)...);
+				alloc_traits::construct(alloc, ptr, std::forward<Args>(args)...);
 			} catch(...) {
-				node_allocator_traits::deallocate(alloc, ptr, 1);
+				alloc_traits::deallocate(alloc, ptr, 1);
 				throw;
 			}
 			ptr->next = head.load();
@@ -112,8 +109,8 @@ namespace psx {
 			for(auto ptr{head.load()}; ptr;) {
 				const auto tmp{ptr};
 				ptr = ptr->next;
-				node_allocator_traits::destroy(alloc, tmp);
-				node_allocator_traits::deallocate(alloc, tmp, 1);
+				alloc_traits::destroy(alloc, tmp);
+				alloc_traits::deallocate(alloc, tmp, 1);
 			}
 			head = nullptr;
 		}
@@ -130,12 +127,11 @@ namespace psx {
 		friend
 		void swap(atomic_forward_list & lhs, atomic_forward_list & rhs) noexcept { lhs.swap(rhs); }
 
-		auto begin() const noexcept { return const_iterator{head.load()}; }
-		auto begin()       noexcept { return       iterator{head.load()}; }
-		auto end() const noexcept { return const_iterator{}; }
-		auto end()       noexcept { return       iterator{}; }
-		auto cbegin() const noexcept { return begin(); }
-		auto cend() const noexcept { return end(); }
+		auto begin() const noexcept -> const_iterator { return head.load(); }
+		auto begin()       noexcept ->       iterator { return head.load(); }
+		auto end() const noexcept -> const_iterator { return {}; }
+		auto end()       noexcept ->       iterator { return {}; }
+		auto cbegin() const noexcept -> const_iterator { return begin(); }
+		auto cend() const noexcept ->         iterator { return end(); }
 	};
 }
-
