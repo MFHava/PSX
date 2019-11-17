@@ -16,8 +16,8 @@ namespace psx {
 		static_assert(std::is_nothrow_destructible_v<Type>);
 
 		struct node final {
-			template<typename... Args, typename = std::enable_if_t<std::is_constructible_v<Type, Args...>>>
-			node(Args &&... args) noexcept(std::is_nothrow_constructible_v<Type, Args...>) : value{std::forward<Args>(args)...} {}
+			template<typename... Args>
+			node(Args &&... args) : value{std::forward<Args>(args)...} {}
 
 			node * next{nullptr};
 			Type value;
@@ -91,7 +91,8 @@ namespace psx {
 
 		auto push_front(const Type & value) -> Type & { return emplace_front(value); }
 		auto push_front(Type && value) -> Type & { return emplace_front(std::move(value)); }
-		template<typename... Args>
+
+		template<typename... Args, typename = std::enable_if_t<std::is_constructible_v<Type, Args...>>>
 		auto emplace_front(Args &&... args) -> Type & {
 			auto ptr{alloc_traits::allocate(alloc, 1)};
 			try {
@@ -105,7 +106,7 @@ namespace psx {
 			return ptr->value;
 		}
 
-		void clear() {
+		void clear() noexcept {
 			for(auto ptr{head.load()}; ptr;) {
 				const auto tmp{ptr};
 				ptr = ptr->next;
